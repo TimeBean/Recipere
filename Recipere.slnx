@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Recipere.Application/Recipere.Application.csproj" />
+  <Project Path="Recipere.Core/Recipere.Core.csproj" />
+  <Project Path="Recipere.Infrastructure/Recipere.Infrastructure.csproj" />
+  <Project Path="Recipere.Presentation.Console/Recipere.Presentation.Console.csproj" />
+  <Project Path="Recipere.Presentation.Telegram/Recipere.Presentation.Telegram.csproj" />
+</Solution>

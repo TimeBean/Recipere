@@ -1,0 +1,18 @@
+# Build results
+bin/
+obj/
+[Bb]uild/
+[Ll]og/
+
+# Visual Studio
+.vs/
+.idea/
+*.user
+*.suo
+
+# NuGet
+*.nupkg
+*.snupkg
+
+# Secrets — bot tokens and machine-local settings
+Recipere.Presentation.Telegram/appsettings.json
