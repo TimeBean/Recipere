@@ -9,24 +9,58 @@ Telegram bot for downloading video.
 
 ## Setup (Telegram bot)
 
-The bot token is not stored in the repository. In development it lives in .NET user secrets.
-
-1. Add the `<UserSecretsId>` already present in `Recipere.Presentation.Telegram.csproj`:
-
-   ```bash
-   dotnet user-secrets set "TelegramBot:Token" "YOUR_BOT_TOKEN_HERE" \
-     --project Recipere.Presentation.Telegram
-   ```
-
-2. Optionally copy `appsettings.Example.json` to `appsettings.json` and tune yt-dlp settings
-   (`YtDlp:CookieFromBrowser`, `YtDlp:AudioOnly`, `YtDlp:MaxUploadBytes`).
-   `appsettings.json` is gitignored so machine-local values never get committed.
-
-3. Run in development (user secrets are only loaded when the environment is `Development`):
-
-   ```bash
-   DOTNET_ENVIRONMENT=Development dotnet run --project Recipere.Presentation.Telegram
-   ```
+```bash
+dotnet user-secrets set "TelegramBot:Token" "YOUR_BOT_TOKEN_HERE" \
+  --project Recipere.Presentation.Telegram
+DOTNET_ENVIRONMENT=Development dotnet run --project Recipere.Presentation.Telegram
+```
 
 In production, set the token via the `TelegramBot__Token` environment variable instead.
+Optionally copy `appsettings.Example.json` to `appsettings.json` (gitignored) and tune
+settings (see [Configuration](#configuration)).
+
+## Configuration
+
+All settings live in `appsettings.json` (or `appsettings.Development.json` in development).
+A ready-made template is in `appsettings.Example.json`. Any key can be overridden with an
+environment variable by replacing `:` with `__` (e.g. `YtDlp__MaxUploadBytes`).
+
+### `TelegramBot`
+
+| Key            | Type   | Description                                  |
+| -------------- | ------ | -------------------------------------------- |
+| `Token`        | string | Telegram bot token from [@BotFather](https://t.me/BotFather). |
+
+### `Messages`
+
+All bot reply texts. Telegram supports basic HTML formatting (`<b>`, `<i>`, `<code>`);
+the `{0}` placeholder is replaced with the user's link.
+
+| Key                   | Type     | Description                                                   |
+| --------------------- | -------- | ------------------------------------------------------------- |
+| `StartText`           | string   | Reply to `/start`.                                             |
+| `HelpText`            | string   | Reply to `/help`.                                              |
+| `MissingUrlText`      | string   | Reply when the message contains no link.                       |
+| `FailureText`         | string   | Reply when the download fails and no `ErrorCauses` rule matches. |
+| `DownloadingTemplate` | string   | "Downloading…" message; `{0}` is replaced with the link.       |
+| `ErrorCauses`         | array    | Ordered list of error-to-reply mappings (see below).           |
+
+Each `ErrorCauses` item maps yt-dlp error keywords to a user-friendly reply:
+
+| Key        | Type     | Description                                                        |
+| ---------- | -------- | ------------------------------------------------------------------ |
+| `Contains` | string[] | Keywords matched against the yt-dlp error message (case-insensitive). |
+| `Response` | string?  | Reply shown when a keyword matches. Empty/null falls back to `FailureText`. |
+
+Rules are checked in order; the first match wins.
+
+### `YtDlp`
+
+| Key                 | Type    | Default                                    | Description                                                                   |
+| ------------------- | ------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `StoragePath`       | string  | `%LocalAppData%/Recipere/downloads`        | Where downloaded files are stored.                                             |
+| `AudioOnly`         | bool    | `true`                                     | Extract only the audio track (MP3) instead of the full video.                  |
+| `CookieFromBrowser` | string? | empty                                      | Browser name (`firefox`, `chrome`, …) used to bypass login/age restrictions.   |
+| `MaxUploadBytes`    | integer | `52428800` (50 MB)                         | Maximum file size uploaded to Telegram; larger files are split.                |
+
 
