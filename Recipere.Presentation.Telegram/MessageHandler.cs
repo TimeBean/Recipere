@@ -46,10 +46,13 @@ public sealed class MessageHandler
 
         if (message.Text.StartsWith("/start", StringComparison.Ordinal))
         {
-            await _botClient.SendMessage(
-                message.Chat,
-                _options.HelpText,
-                cancellationToken: cancellationToken);
+            await SendTextAsync(message.Chat, _options.StartText, cancellationToken);
+            return;
+        }
+
+        if (message.Text.StartsWith("/help", StringComparison.Ordinal))
+        {
+            await SendTextAsync(message.Chat, _options.HelpText, cancellationToken);
             return;
         }
 
@@ -58,6 +61,7 @@ public sealed class MessageHandler
             await _botClient.SendMessage(
                 message.Chat,
                 _options.MissingUrlText,
+                parseMode: ParseMode.Html,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -142,11 +146,16 @@ public sealed class MessageHandler
         }
     }
 
+    private async Task SendTextAsync(ChatId chatId, string text, CancellationToken cancellationToken)
+    {
+        await _botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
+    }
+
     private async Task SendFailureAsync(ChatId chatId, string text, CancellationToken cancellationToken)
     {
         try
         {
-            await _botClient.SendMessage(chatId, text, cancellationToken: cancellationToken);
+            await _botClient.SendMessage(chatId, text, parseMode: ParseMode.Html, cancellationToken: cancellationToken);
         }
         catch (Exception ex)
         {

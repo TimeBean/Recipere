@@ -2,6 +2,7 @@ namespace Recipere.Presentation.Telegram;
 
 public sealed class MessageOptions
 {
+    public required string StartText { get; init; }
     public required string HelpText { get; init; }
     public required string MissingUrlText { get; init; }
     public required string FailureText { get; init; }
