@@ -42,7 +42,22 @@ public sealed class TelegramBotHostedService : IHostedService
     }
 
     private Task OnMessageAsync(Message message, UpdateType type)
-        => _messageHandler.HandleMessageAsync(message, _processingCts.Token);
+    {
+        _ = HandleAsync();
+        return Task.CompletedTask;
+
+        async Task HandleAsync()
+        {
+            try
+            {
+                await _messageHandler.HandleMessageAsync(message, _processingCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error while processing message in {Chat}", message.Chat);
+            }
+        }
+    }
 
     private Task OnErrorAsync(Exception exception, HandleErrorSource source)
     {
