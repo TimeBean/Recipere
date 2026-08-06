@@ -5,6 +5,6 @@ namespace Recipere.Application.Remove;
 
 public class RemoveRequestHandler(IContentRepository repository) : IRequestHandler<RemoveRequest>
 {
-    public Task Handle(RemoveRequest request, CancellationToken cancellationToken)
-        => repository.RemoveAsync(request.Url, cancellationToken);
+    public Task Handle(RemoveRequest request, CancellationToken cancellationToken) =>
+        repository.RemoveAsync(request.Handle, cancellationToken);
 }

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Recipere.Application.Get;
 using Recipere.Application.GetMetadata;
 using Recipere.Application.Remove;
+using Recipere.Core.Repository;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -21,17 +22,20 @@ public sealed class MessageHandler
 
     private readonly ITelegramBotClient _botClient;
     private readonly ISender _mediator;
+    private readonly IVideoStorage _videoStorage;
     private readonly ILogger<MessageHandler> _logger;
     private readonly IHostEnvironment _environment;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         ISender mediator,
+        IVideoStorage videoStorage,
         ILogger<MessageHandler> logger,
         IHostEnvironment environment)
     {
         _botClient = botClient;
         _mediator = mediator;
+        _videoStorage = videoStorage;
         _logger = logger;
         _environment = environment;
     }
@@ -39,7 +43,9 @@ public sealed class MessageHandler
     public async Task HandleMessageAsync(Message message, CancellationToken cancellationToken)
     {
         if (message.Text is null)
+        {
             return;
+        }
 
         _logger.LogInformation("Received '{Text}' in {Chat}", message.Text, message.Chat);
 
@@ -61,6 +67,11 @@ public sealed class MessageHandler
             return;
         }
 
+        await ProcessAsync(url, message, cancellationToken);
+    }
+
+    private async Task ProcessAsync(string url, Message message, CancellationToken cancellationToken)
+    {
         try
         {
             _logger.LogInformation("Fetching metadata for {Url}", url);
@@ -78,20 +89,18 @@ public sealed class MessageHandler
             _logger.LogInformation("Downloading audio from {Url}", url);
 
             var content = await _mediator.Send(new GetRequest(url), cancellationToken);
-            if (string.IsNullOrEmpty(content.Path) || !File.Exists(content.Path))
-                throw new FileNotFoundException("File not found after download.", content.Path);
 
-            await using var stream = File.OpenRead(content.Path);
+            await using var stream = await _videoStorage.OpenAsync(content.Path, cancellationToken);
             await _botClient.SendAudio(
                 message.Chat,
-                InputFile.FromStream(stream, Path.GetFileName(content.Path)),
+                InputFile.FromStream(stream, GetAudioFileName(content.Title.Value)),
                 title: content.Title.Value,
                 performer: content.Channel.Name.Value,
                 duration: DurationParser.ParseSeconds(content.DurationString.Value),
                 cancellationToken: cancellationToken);
 
-            _logger.LogInformation("Sent audio for {Url}, removing from disk", url);
-            await _mediator.Send(new RemoveRequest(url), cancellationToken);
+            _logger.LogInformation("Sent audio for {Url}, removing from storage", url);
+            await _mediator.Send(new RemoveRequest(content.Path), cancellationToken);
 
             await TryDeleteMessageAsync(infoMessage, cancellationToken);
         }
@@ -130,4 +139,11 @@ public sealed class MessageHandler
     }
 
     private static string EscapeHtml(string value) => WebUtility.HtmlEncode(value);
+
+    private static string GetAudioFileName(string title)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var name = string.Concat(title.Select(c => invalid.Contains(c) ? '_' : c));
+        return $"{name}.mp3";
+    }
 }

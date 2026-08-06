@@ -4,9 +4,9 @@ Telegram bot for downloading video.
 
 ## Architecture
 
-- `Recipere.Core` — domain models (`Content`, `Channel`, `Text`) and the `IContentRepository` contract.
+- `Recipere.Core` — domain models (`Content`, `Channel`, `Text`), the `IContentRepository` contract and the `IVideoStorage` storage contract.
 - `Recipere.Application` — MediatR requests and handlers (`Get`, `GetMetadata`, `Remove`).
-- `Recipere.Infrastructure` — `YtDlpContentRepository`, a configurable yt-dlp-based implementation.
+- `Recipere.Infrastructure` — `YtDlpContentRepository` (a configurable yt-dlp-based implementation) and `InMemoryVideoStorage` (in-memory video storage).
 - `Recipere.Presentation.Telegram` — Telegram bot host (`Host` + `IHostedService`), message handler and helpers.
 - `Recipere.Presentation.Console` — simple sample that downloads a hardcoded URL.
 

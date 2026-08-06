@@ -10,6 +10,7 @@ services.AddLogging();
 services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof(GetRequest).Assembly));
 services.Configure<YtDlpOptions>(_ => { });
 services.AddSingleton<IContentRepository, YtDlpContentRepository>();
+services.AddSingleton<IVideoStorage, InMemoryVideoStorage>();
 
 await using var provider = services.BuildServiceProvider();
 
