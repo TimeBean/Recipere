@@ -63,4 +63,6 @@ Rules are checked in order; the first match wins.
 | `CookieFromBrowser` | string? | empty                                      | Browser name (`firefox`, `chrome`, …) used to bypass login/age restrictions.   |
 | `MaxUploadBytes`    | integer | `52428800` (50 MB)                         | Maximum file size uploaded to Telegram; larger files are split.                |
 
+See [yt-dlp filesystem options](https://github.com/yt-dlp/yt-dlp/blob/5d6b8c8cd19785c3086ae3a9ec618c45e25eb3bc/README.md#filesystem-options) for available browser names, and [Supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) for the list of supported platforms.
+
 
