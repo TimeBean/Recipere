@@ -2,13 +2,10 @@
 
 Telegram bot for downloading video.
 
-## Architecture
+## Prerequisites
 
-- `Recipere.Core` — domain models (`Content`, `Channel`, `Text`), the `IContentRepository` contract and the `IVideoStorage` storage contract.
-- `Recipere.Application` — MediatR requests and handlers (`Get`, `GetMetadata`, `Remove`).
-- `Recipere.Infrastructure` — `YtDlpContentRepository` (a configurable yt-dlp-based implementation) and `InMemoryVideoStorage` (in-memory video storage).
-- `Recipere.Presentation.Telegram` — Telegram bot host (`Host` + `IHostedService`), message handler and helpers.
-- `Recipere.Presentation.Console` — simple sample that downloads a hardcoded URL.
+- .NET 10 SDK
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) on `PATH`
 
 ## Setup (Telegram bot)
 
@@ -33,7 +30,3 @@ The bot token is not stored in the repository. In development it lives in .NET u
 
 In production, set the token via the `TelegramBot__Token` environment variable instead.
 
-## Prerequisites
-
-- .NET 10 SDK
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) on `PATH`
