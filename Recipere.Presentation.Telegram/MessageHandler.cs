@@ -1,11 +1,11 @@
 using System.Net;
 using MediatR;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Recipere.Application.Get;
 using Recipere.Application.GetMetadata;
 using Recipere.Application.Remove;
+using Recipere.Core.Model;
 using Recipere.Core.Repository;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -19,7 +19,6 @@ public sealed class MessageHandler
     private readonly ISender _mediator;
     private readonly IVideoStorage _videoStorage;
     private readonly ILogger<MessageHandler> _logger;
-    private readonly IHostEnvironment _environment;
     private readonly MessageOptions _options;
 
     public MessageHandler(
@@ -27,14 +26,12 @@ public sealed class MessageHandler
         ISender mediator,
         IVideoStorage videoStorage,
         ILogger<MessageHandler> logger,
-        IHostEnvironment environment,
         IOptions<MessageOptions> options)
     {
         _botClient = botClient;
         _mediator = mediator;
         _videoStorage = videoStorage;
         _logger = logger;
-        _environment = environment;
         _options = options.Value;
     }
 
@@ -70,6 +67,7 @@ public sealed class MessageHandler
 
     private async Task ProcessAsync(string url, Message message, CancellationToken cancellationToken)
     {
+        Content? content = null;
         try
         {
             _logger.LogInformation("Fetching metadata for {Url}", url);
@@ -87,7 +85,7 @@ public sealed class MessageHandler
 
             _logger.LogInformation("Downloading audio from {Url}", url);
 
-            var content = await _mediator.Send(new GetRequest(url), cancellationToken);
+            content = await _mediator.Send(new GetRequest(url), cancellationToken);
 
             await using var stream = await _videoStorage.OpenAsync(content.Path, cancellationToken);
             await _botClient.SendAudio(
@@ -110,7 +108,8 @@ public sealed class MessageHandler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process {Url}", url);
-            await SendFailureAsync(message.Chat, ex, cancellationToken);
+            await TryCleanupAsync(url, content, cancellationToken);
+            await SendFailureAsync(message.Chat, ErrorTextResolver.Resolve(ex, _options), cancellationToken);
         }
     }
 
@@ -126,15 +125,33 @@ public sealed class MessageHandler
         }
     }
 
-    private async Task SendFailureAsync(ChatId chatId, Exception exception, CancellationToken cancellationToken)
+    private async Task TryCleanupAsync(string url, Content? content, CancellationToken cancellationToken)
     {
-        if (_environment.IsDevelopment())
+        if (content is null || string.IsNullOrEmpty(content.Path))
         {
-            await _botClient.SendMessage(chatId, $"{_options.FailureText}\n{exception.Message}", cancellationToken: cancellationToken);
             return;
         }
 
-        await _botClient.SendMessage(chatId, _options.FailureText, cancellationToken: cancellationToken);
+        try
+        {
+            await _mediator.Send(new RemoveRequest(content.Path), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clean up {Path} after processing {Url} failed", content.Path, url);
+        }
+    }
+
+    private async Task SendFailureAsync(ChatId chatId, string text, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _botClient.SendMessage(chatId, text, cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send error message to {Chat}", chatId);
+        }
     }
 
     private static string EscapeHtml(string value) => WebUtility.HtmlEncode(value);
