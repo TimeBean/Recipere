@@ -60,9 +60,13 @@ Rules are checked in order; the first match wins.
 | ------------------- | ------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
 | `StoragePath`       | string  | `%LocalAppData%/Recipere/downloads`        | Where downloaded files are stored.                                             |
 | `AudioOnly`         | bool    | `true`                                     | Extract only the audio track (MP3) instead of the full video.                  |
-| `CookieFromBrowser` | string? | empty                                      | Browser name (`firefox`, `chrome`, …) used to bypass login/age restrictions.   |
+| `CookieFromBrowser` | string? | empty                                      | Browser used to bypass login/age restrictions. See the note below.             |
 | `MaxUploadBytes`    | integer | `52428800` (50 MB)                         | Maximum file size uploaded to Telegram; larger files are split.                |
 
 See [yt-dlp filesystem options](https://github.com/yt-dlp/yt-dlp/blob/5d6b8c8cd19785c3086ae3a9ec618c45e25eb3bc/README.md#filesystem-options) for available browser names, and [Supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) for the list of supported platforms.
+
+> **Note:** `CookieFromBrowser` maps directly to yt-dlp's
+> `--cookies-from-browser BROWSER[+KEYRING][:PROFILE][::CONTAINER]`, so the full
+> syntax is supported (e.g. `firefox`, `chrome+system`, `edge::Default`, …).
 
 
