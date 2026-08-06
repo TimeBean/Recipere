@@ -4,17 +4,15 @@ public static class UrlExtractor
 {
     public static bool TryExtract(string text, out string url)
     {
-        if (!string.IsNullOrWhiteSpace(text)
-            && Uri.TryCreate(text.Trim(), UriKind.Absolute, out var trimmedUri)
-            && IsHttpUrl(trimmedUri))
+        if (string.IsNullOrWhiteSpace(text))
         {
-            url = trimmedUri.ToString();
-            return true;
+            url = string.Empty;
+            return false;
         }
 
         foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (Uri.TryCreate(word, UriKind.Absolute, out var uri) && IsHttpUrl(uri))
+            if (TryCreateUri(word, out var uri))
             {
                 url = uri.ToString();
                 return true;
@@ -25,6 +23,21 @@ public static class UrlExtractor
         return false;
     }
 
-    private static bool IsHttpUrl(Uri uri)
-        => uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+    private static bool TryCreateUri(string value, out Uri uri)
+    {
+        if (Uri.TryCreate(value, UriKind.Absolute, out uri) && IsHttpUrl(uri))
+        {
+            return true;
+        }
+
+        if (!value.Contains('.'))
+        {
+            return false;
+        }
+
+        return Uri.TryCreate("https://" + value, UriKind.Absolute, out uri) && IsHttpUrl(uri);
+    }
+
+    private static bool IsHttpUrl(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
 }
