@@ -22,6 +22,15 @@ public static class Program
         builder.Services.AddHostedService<TelegramBotHostedService>();
         builder.Services.AddSingleton<MessageHandler>();
         builder.Services.Configure<TelegramBotOptions>(builder.Configuration.GetSection("TelegramBot"));
+        builder.Services.AddOptions<MessageOptions>()
+            .Bind(builder.Configuration.GetSection("Messages"))
+            .Validate(
+                o => !string.IsNullOrWhiteSpace(o.HelpText)
+                     && !string.IsNullOrWhiteSpace(o.MissingUrlText)
+                     && !string.IsNullOrWhiteSpace(o.FailureText)
+                     && !string.IsNullOrWhiteSpace(o.DownloadingTemplate),
+                "Messages section is missing or incomplete.")
+            .ValidateOnStart();
         builder.Services.Configure<YtDlpOptions>(builder.Configuration.GetSection("YtDlp"));
         builder.Services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof(GetRequest).Assembly));
         builder.Services.AddSingleton<IContentRepository, YtDlpContentRepository>();
@@ -30,8 +39,10 @@ public static class Program
         {
             var options = sp.GetRequiredService<IOptions<TelegramBotOptions>>().Value;
             if (string.IsNullOrWhiteSpace(options.Token))
+            {
                 throw new InvalidOperationException(
                     "Telegram bot token is not configured. Set 'TelegramBot:Token' (e.g. via dotnet user-secrets).");
+            }
             return new TelegramBotClient(options.Token);
         });
         builder.Services.AddSingleton<ITelegramBotClient>(sp => sp.GetRequiredService<TelegramBotClient>());

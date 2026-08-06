@@ -2,6 +2,7 @@ using System.Net;
 using MediatR;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Recipere.Application.Get;
 using Recipere.Application.GetMetadata;
 using Recipere.Application.Remove;
@@ -14,30 +15,27 @@ namespace Recipere.Presentation.Telegram;
 
 public sealed class MessageHandler
 {
-    private const string HelpText =
-        "Hi! Send me a video link and I'll download the audio for you.\n\nSupported: YouTube and other yt-dlp sources.";
-
-    private const string MissingUrlText = "Send me a link and I'll download the audio.";
-    private const string FailureText = "Failed to download audio. Please check the link and try again.";
-
     private readonly ITelegramBotClient _botClient;
     private readonly ISender _mediator;
     private readonly IVideoStorage _videoStorage;
     private readonly ILogger<MessageHandler> _logger;
     private readonly IHostEnvironment _environment;
+    private readonly MessageOptions _options;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         ISender mediator,
         IVideoStorage videoStorage,
         ILogger<MessageHandler> logger,
-        IHostEnvironment environment)
+        IHostEnvironment environment,
+        IOptions<MessageOptions> options)
     {
         _botClient = botClient;
         _mediator = mediator;
         _videoStorage = videoStorage;
         _logger = logger;
         _environment = environment;
+        _options = options.Value;
     }
 
     public async Task HandleMessageAsync(Message message, CancellationToken cancellationToken)
@@ -53,7 +51,7 @@ public sealed class MessageHandler
         {
             await _botClient.SendMessage(
                 message.Chat,
-                HelpText,
+                _options.HelpText,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -62,7 +60,7 @@ public sealed class MessageHandler
         {
             await _botClient.SendMessage(
                 message.Chat,
-                MissingUrlText,
+                _options.MissingUrlText,
                 cancellationToken: cancellationToken);
             return;
         }
@@ -79,8 +77,9 @@ public sealed class MessageHandler
             var metadata = await _mediator.Send(new GetMetadataRequest(url), cancellationToken);
             var infoMessage = await _botClient.SendMessage(
                 message.Chat,
-                $"Downloading <a href=\"{EscapeHtml(metadata.WebpageUrl)}\">{EscapeHtml(metadata.Title.Value)}</a> " +
-                $"from <a href=\"{EscapeHtml(metadata.Channel.Url)}\">{EscapeHtml(metadata.Channel.Name.Value)}</a>",
+                string.Format(
+                    _options.DownloadingTemplate,
+                    EscapeHtml(metadata.Title.Value)),
                 parseMode: ParseMode.Html,
                 cancellationToken: cancellationToken);
 
@@ -131,11 +130,11 @@ public sealed class MessageHandler
     {
         if (_environment.IsDevelopment())
         {
-            await _botClient.SendMessage(chatId, $"{FailureText}\n{exception.Message}", cancellationToken: cancellationToken);
+            await _botClient.SendMessage(chatId, $"{_options.FailureText}\n{exception.Message}", cancellationToken: cancellationToken);
             return;
         }
 
-        await _botClient.SendMessage(chatId, FailureText, cancellationToken: cancellationToken);
+        await _botClient.SendMessage(chatId, _options.FailureText, cancellationToken: cancellationToken);
     }
 
     private static string EscapeHtml(string value) => WebUtility.HtmlEncode(value);
