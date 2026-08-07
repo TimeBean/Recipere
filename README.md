@@ -1,6 +1,6 @@
 # Recipere
 
-Telegram bot for downloading video.
+Telegram bot for downloading audio and video.
 
 ## Prerequisites
 
@@ -33,17 +33,33 @@ environment variable by replacing `:` with `__` (e.g. `YtDlp__MaxUploadBytes`).
 
 ### `Messages`
 
-All bot reply texts. Telegram supports basic HTML formatting (`<b>`, `<i>`, `<code>`);
-the `{0}` placeholder is replaced with the user's link.
+All bot reply texts. Telegram supports basic HTML formatting (`<b>`, `<i>`, `<code>`).
+Placeholders are replaced at runtime: `{0}` is the media title, `{1}` (in `ChoosingTemplate`)
+is the duration.
 
-| Key                   | Type     | Description                                                   |
-| --------------------- | -------- | ------------------------------------------------------------- |
-| `StartText`           | string   | Reply to `/start`.                                             |
-| `HelpText`            | string   | Reply to `/help`.                                              |
-| `MissingUrlText`      | string   | Reply when the message contains no link.                       |
-| `FailureText`         | string   | Reply when the download fails and no `ErrorCauses` rule matches. |
-| `DownloadingTemplate` | string   | "Downloading…" message; `{0}` is replaced with the link.       |
-| `ErrorCauses`         | array    | Ordered list of error-to-reply mappings (see below).           |
+| Key                     | Type     | Description                                                   |
+| ----------------------- | -------- | ------------------------------------------------------------- |
+| `StartText`             | string   | Reply to `/start`.                                             |
+| `HelpText`              | string   | Reply to `/help`.                                              |
+| `MissingUrlText`        | string   | Reply when the message contains no link.                       |
+| `FailureText`           | string   | Reply when the download fails and no `ErrorCauses` rule matches. |
+| `DownloadingTemplate`   | string   | "Downloading…" message; `{0}` is the title. Used as a fallback for the two templates below. |
+| `ChoosingTemplate`      | string?  | Format-selection card shown after a link is sent; `{0}` = title, `{1}` = duration. Defaults to a built-in text if empty. |
+| `DownloadingAudioTemplate` | string? | "Downloading audio…" message; falls back to `DownloadingTemplate`. |
+| `DownloadingVideoTemplate` | string? | "Downloading video…" message; falls back to `DownloadingTemplate`. |
+| `VideoTooLongText`      | string?  | Shown on the selection card when no video quality fits the size limit. |
+| `VideoCaptionTemplate`  | string?  | Caption attached to the sent video; `{0}` is the title, `{1}` is the channel name linked to its page, `{2}` is the bot's @username link (all optional, missing values render as empty). Defaults to just the title if empty. |
+| `ExpiredRequestText`    | string?  | Reply when the user taps an expired format button.            |
+| `ErrorCauses`           | array    | Ordered list of error-to-reply mappings (see below).           |
+
+## How a download works
+
+1. The user sends a link.
+2. The bot fetches metadata and replies with a card showing the title, duration and an
+   inline keyboard: `Audio` plus one button per video quality.
+3. Only qualities whose estimated size fits `YtDlp:MaxUploadBytes` are shown; if none fit,
+   only `Audio` is offered.
+4. Tapping a button downloads and sends the file (MP3 via `sendAudio`, MP4 via `sendVideo`).
 
 Each `ErrorCauses` item maps yt-dlp error keywords to a user-friendly reply:
 
@@ -59,9 +75,10 @@ Rules are checked in order; the first match wins.
 | Key                 | Type    | Default                                    | Description                                                                   |
 | ------------------- | ------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
 | `StoragePath`       | string  | `%LocalAppData%/Recipere/downloads`        | Where downloaded files are stored.                                             |
-| `AudioOnly`         | bool    | `true`                                     | Extract only the audio track (MP3) instead of the full video.                  |
+| `AudioOnly`         | bool    | `true`                                     | Default format used by the audio pipeline (not the Telegram selection flow).   |
+| `VideoQualities`    | int[]   | `[360, 480, 720, 1080]`                    | Video qualities offered in the selection card. Only those fitting the size limit are shown. |
 | `CookieFromBrowser` | string? | empty                                      | Browser used to bypass login/age restrictions. See the note below.             |
-| `MaxUploadBytes`    | integer | `52428800` (50 MB)                         | Maximum file size uploaded to Telegram; larger files are split.                |
+| `MaxUploadBytes`    | integer | `52428800` (50 MB)                         | Video size budget. Qualities whose estimated size exceeds it are hidden; downloaded videos larger than it are rejected. |
 
 See [yt-dlp filesystem options](https://github.com/yt-dlp/yt-dlp/blob/5d6b8c8cd19785c3086ae3a9ec618c45e25eb3bc/README.md#filesystem-options) for available browser names, and [Supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md) for the list of supported platforms.
 
