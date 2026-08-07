@@ -8,6 +8,13 @@ public sealed class MessageOptions
     public required string FailureText { get; init; }
     public required string DownloadingTemplate { get; init; }
 
+    public string ChoosingTemplate { get; init; } = string.Empty;
+    public string DownloadingAudioTemplate { get; init; } = string.Empty;
+    public string DownloadingVideoTemplate { get; init; } = string.Empty;
+    public string VideoTooLongText { get; init; } = string.Empty;
+    public string VideoCaptionTemplate { get; init; } = string.Empty;
+    public string ExpiredRequestText { get; init; } = string.Empty;
+
     public ErrorCause[] ErrorCauses { get; init; } = [];
 }
 

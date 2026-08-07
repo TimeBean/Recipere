@@ -3,13 +3,15 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Recipere.Application.Get;
-using Recipere.Application.GetMetadata;
+using Recipere.Application.GetVideo;
 using Recipere.Application.Remove;
 using Recipere.Core.Model;
 using Recipere.Core.Repository;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
+using VideoQuality = Recipere.Core.Model.VideoQuality;
 
 namespace Recipere.Presentation.Telegram;
 
@@ -18,6 +20,7 @@ public sealed class MessageHandler
     private readonly ITelegramBotClient _botClient;
     private readonly ISender _mediator;
     private readonly IVideoStorage _videoStorage;
+    private readonly PendingRequestStore _pendingRequests;
     private readonly ILogger<MessageHandler> _logger;
     private readonly MessageOptions _options;
 
@@ -25,12 +28,14 @@ public sealed class MessageHandler
         ITelegramBotClient botClient,
         ISender mediator,
         IVideoStorage videoStorage,
+        PendingRequestStore pendingRequests,
         ILogger<MessageHandler> logger,
         IOptions<MessageOptions> options)
     {
         _botClient = botClient;
         _mediator = mediator;
         _videoStorage = videoStorage;
+        _pendingRequests = pendingRequests;
         _logger = logger;
         _options = options.Value;
     }
@@ -66,44 +71,113 @@ public sealed class MessageHandler
             return;
         }
 
-        await ProcessAsync(url, message, cancellationToken);
+        await SendSelectionCardAsync(url, message, cancellationToken);
     }
 
-    private async Task ProcessAsync(string url, Message message, CancellationToken cancellationToken)
+    public async Task HandleCallbackAsync(CallbackQuery callbackQuery, CancellationToken cancellationToken)
     {
-        Content? content = null;
+        try
+        {
+            await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+
+            if (callbackQuery.Message is null) return;
+
+            var (isAudio, height, token) = ParseCallbackData(callbackQuery.Data);
+            if (string.IsNullOrEmpty(token) || !_pendingRequests.TryGet(token, out var pending))
+            {
+                var expiredText = string.IsNullOrWhiteSpace(_options.ExpiredRequestText)
+                    ? "This request has expired. Please send the link again."
+                    : _options.ExpiredRequestText;
+                await SendTextAsync(callbackQuery.Message.Chat, expiredText, cancellationToken);
+                await TryDeleteMessageAsync(callbackQuery.Message, cancellationToken);
+                return;
+            }
+
+            var downloadingText = string.Format(
+                ResolveDownloadingTemplate(isAudio),
+                EscapeHtml(pending.Content.Title.Value));
+            var downloadingMessage = await _botClient.SendMessage(
+                callbackQuery.Message.Chat,
+                downloadingText,
+                parseMode: ParseMode.Html,
+                cancellationToken: cancellationToken);
+
+            await TryDeleteMessageAsync(callbackQuery.Message, cancellationToken);
+
+            Content? content = null;
+            try
+            {
+                if (isAudio)
+                {
+                    _logger.LogInformation("Downloading audio from {Url}", pending.Url);
+                    content = await _mediator.Send(new GetRequest(pending.Url), cancellationToken);
+
+                    await using var stream = await _videoStorage.OpenAsync(content.Path, cancellationToken);
+                    await _botClient.SendAudio(
+                        callbackQuery.Message.Chat,
+                        InputFile.FromStream(stream, GetAudioFileName(content.Title.Value)),
+                        title: content.Title.Value,
+                        performer: content.Channel.Name.Value,
+                        duration: DurationParser.ParseSeconds(content.DurationString.Value),
+                        cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    _logger.LogInformation("Downloading video from {Url} (max {Height}p)", pending.Url, height);
+                    content = await _mediator.Send(new GetVideoRequest(pending.Url, height!.Value), cancellationToken);
+
+                    await using var stream = await _videoStorage.OpenAsync(content.Path, cancellationToken);
+                    await _botClient.SendVideo(
+                        callbackQuery.Message.Chat,
+                        InputFile.FromStream(stream, GetVideoFileName(content)),
+                        width: content.Width,
+                        height: content.Height,
+                        duration: DurationParser.ParseSeconds(content.DurationString.Value),
+                        caption: await BuildVideoCaptionAsync(content, cancellationToken),
+                        parseMode: ParseMode.Html,
+                        cancellationToken: cancellationToken);
+                }
+
+                _logger.LogInformation("Sent media for {Url}, removing from storage", pending.Url);
+                await _mediator.Send(new RemoveRequest(content.Path), cancellationToken);
+
+                await TryDeleteMessageAsync(downloadingMessage, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Processing of {Url} was cancelled", pending.Url);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to process {Url}", pending.Url);
+                await TryCleanupAsync(pending.Url, content, cancellationToken);
+                await SendFailureAsync(callbackQuery.Message.Chat, ErrorTextResolver.Resolve(ex, _options), cancellationToken);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to handle callback {Data}", callbackQuery.Data);
+        }
+    }
+
+    private async Task SendSelectionCardAsync(string url, Message message, CancellationToken cancellationToken)
+    {
         try
         {
             _logger.LogInformation("Fetching metadata for {Url}", url);
 
-            var metadata = await _mediator.Send(new GetMetadataRequest(url), cancellationToken);
-            var infoMessage = await _botClient.SendMessage(
+            var preview = await _mediator.Send(new GetVideoPreviewRequest(url), cancellationToken);
+
+            var token = _pendingRequests.Add(url, preview.Metadata);
+
+            await _botClient.SendMessage(
                 message.Chat,
-                string.Format(
-                    _options.DownloadingTemplate,
-                    EscapeHtml(metadata.Title.Value)),
+                BuildCardText(preview.Metadata, videoUnavailable: preview.Qualities.Count == 0),
                 parseMode: ParseMode.Html,
+                replyMarkup: BuildSelectionKeyboard(preview.Qualities, token),
                 cancellationToken: cancellationToken);
 
             await TryDeleteMessageAsync(message, cancellationToken);
-
-            _logger.LogInformation("Downloading audio from {Url}", url);
-
-            content = await _mediator.Send(new GetRequest(url), cancellationToken);
-
-            await using var stream = await _videoStorage.OpenAsync(content.Path, cancellationToken);
-            await _botClient.SendAudio(
-                message.Chat,
-                InputFile.FromStream(stream, GetAudioFileName(content.Title.Value)),
-                title: content.Title.Value,
-                performer: content.Channel.Name.Value,
-                duration: DurationParser.ParseSeconds(content.DurationString.Value),
-                cancellationToken: cancellationToken);
-
-            _logger.LogInformation("Sent audio for {Url}, removing from storage", url);
-            await _mediator.Send(new RemoveRequest(content.Path), cancellationToken);
-
-            await TryDeleteMessageAsync(infoMessage, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -111,10 +185,92 @@ public sealed class MessageHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process {Url}", url);
-            await TryCleanupAsync(url, content, cancellationToken);
+            _logger.LogError(ex, "Failed to prepare {Url}", url);
             await SendFailureAsync(message.Chat, ErrorTextResolver.Resolve(ex, _options), cancellationToken);
         }
+    }
+
+    private InlineKeyboardMarkup BuildSelectionKeyboard(IReadOnlyList<VideoQuality> qualities, string token)
+    {
+        var rows = new List<IEnumerable<InlineKeyboardButton>>
+        {
+            new[] { InlineKeyboardButton.WithCallbackData("🎵 Audio", $"a:{token}") }
+        };
+
+        if (qualities.Count > 0)
+        {
+            rows.Add(qualities.Select(q => InlineKeyboardButton.WithCallbackData(q.Label, $"v:{q.Height}:{token}")));
+        }
+
+        return new InlineKeyboardMarkup(rows);
+    }
+
+    private string BuildCardText(Content metadata, bool videoUnavailable)
+    {
+        var title = EscapeHtml(metadata.Title.Value);
+        var duration = EscapeHtml(metadata.DurationString.Value);
+
+        var text = string.IsNullOrWhiteSpace(_options.ChoosingTemplate)
+            ? $"🎬 <b>{title}</b>\n⏱ {duration}\n\nChoose a format:"
+            : string.Format(_options.ChoosingTemplate, title, duration);
+
+        if (videoUnavailable && !string.IsNullOrWhiteSpace(_options.VideoTooLongText))
+        {
+            text += "\n\n" + _options.VideoTooLongText;
+        }
+
+        return text;
+    }
+
+    private string ResolveDownloadingTemplate(bool isAudio)
+    {
+        var template = isAudio ? _options.DownloadingAudioTemplate : _options.DownloadingVideoTemplate;
+        return string.IsNullOrWhiteSpace(template) ? _options.DownloadingTemplate : template;
+    }
+
+    private async Task<string> BuildVideoCaptionAsync(Content content, CancellationToken cancellationToken)
+    {
+        var template = string.IsNullOrWhiteSpace(_options.VideoCaptionTemplate) ? "{0}" : _options.VideoCaptionTemplate;
+        var title = EscapeHtml(content.Title.Value);
+        var channelName = EscapeHtml(content.Channel.Name.Value);
+        var channel = string.IsNullOrWhiteSpace(content.Channel.Url)
+            ? channelName
+            : $"<a href=\"{WebUtility.HtmlEncode(content.Channel.Url)}\">{channelName}</a>";
+        var botMention = await GetBotMentionAsync(cancellationToken);
+        return string.Format(template, title, channel, botMention);
+    }
+
+    private string? _botMention;
+
+    private async Task<string> GetBotMentionAsync(CancellationToken cancellationToken)
+    {
+        if (_botMention is not null)
+        {
+            return _botMention;
+        }
+
+        var me = await _botClient.GetMe(cancellationToken);
+        _botMention = string.IsNullOrWhiteSpace(me.Username)
+            ? string.Empty
+            : $"<a href=\"tg://resolve?domain={WebUtility.HtmlEncode(me.Username)}\">@{WebUtility.HtmlEncode(me.Username)}</a>";
+        return _botMention;
+    }
+
+    private static (bool IsAudio, int? Height, string Token) ParseCallbackData(string? data)
+    {
+        if (string.IsNullOrWhiteSpace(data)) return (false, null, string.Empty);
+
+        var parts = data.Split(':');
+        if (parts.Length < 2) return (false, null, string.Empty);
+
+        var token = parts[^1];
+        if (parts[0] == "a") return (true, null, token);
+        if (parts[0] == "v" && parts.Length >= 3 && int.TryParse(parts[1], out var height))
+        {
+            return (false, height, token);
+        }
+
+        return (false, null, string.Empty);
     }
 
     private async Task TryDeleteMessageAsync(Message message, CancellationToken cancellationToken)
@@ -170,5 +326,13 @@ public sealed class MessageHandler
         var invalid = Path.GetInvalidFileNameChars();
         var name = string.Concat(title.Select(c => invalid.Contains(c) ? '_' : c));
         return $"{name}.mp3";
+    }
+
+    private static string GetVideoFileName(Content content)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var name = string.Concat(content.Title.Value.Select(c => invalid.Contains(c) ? '_' : c));
+        var ext = string.IsNullOrWhiteSpace(content.Extension) ? "mp4" : content.Extension;
+        return $"{name}.{ext}";
     }
 }

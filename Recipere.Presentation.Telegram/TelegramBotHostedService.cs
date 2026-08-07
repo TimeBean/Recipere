@@ -26,6 +26,7 @@ public sealed class TelegramBotHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        _botClient.OnUpdate += OnUpdateAsync;
         _botClient.OnMessage += OnMessageAsync;
         _botClient.OnError += OnErrorAsync;
 
@@ -35,10 +36,34 @@ public sealed class TelegramBotHostedService : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _botClient.OnUpdate -= OnUpdateAsync;
         _botClient.OnMessage -= OnMessageAsync;
         _botClient.OnError -= OnErrorAsync;
         _processingCts.Cancel();
         return Task.CompletedTask;
+    }
+
+    private Task OnUpdateAsync(Update update)
+    {
+        if (update.CallbackQuery is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _ = HandleAsync();
+        return Task.CompletedTask;
+
+        async Task HandleAsync()
+        {
+            try
+            {
+                await _messageHandler.HandleCallbackAsync(update.CallbackQuery, _processingCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error while processing callback in {Chat}", update.CallbackQuery.Message?.Chat);
+            }
+        }
     }
 
     private Task OnMessageAsync(Message message, UpdateType type)

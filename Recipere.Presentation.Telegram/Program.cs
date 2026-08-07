@@ -21,6 +21,7 @@ public static class Program
 
         builder.Services.AddHostedService<TelegramBotHostedService>();
         builder.Services.AddSingleton<MessageHandler>();
+        builder.Services.AddSingleton<PendingRequestStore>();
         builder.Services.Configure<TelegramBotOptions>(builder.Configuration.GetSection("TelegramBot"));
         builder.Services.AddOptions<MessageOptions>()
             .Bind(builder.Configuration.GetSection("Messages"))
@@ -34,6 +35,7 @@ public static class Program
         builder.Services.Configure<YtDlpOptions>(builder.Configuration.GetSection("YtDlp"));
         builder.Services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof(GetRequest).Assembly));
         builder.Services.AddSingleton<IContentRepository, YtDlpContentRepository>();
+        builder.Services.AddSingleton<IVideoRepository, YtDlpVideoRepository>();
         builder.Services.AddSingleton<IVideoStorage, InMemoryVideoStorage>();
         builder.Services.AddSingleton(sp =>
         {
