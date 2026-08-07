@@ -119,6 +119,8 @@ public sealed class MessageHandler
                         title: content.Title.Value,
                         performer: content.Channel.Name.Value,
                         duration: DurationParser.ParseSeconds(content.DurationString.Value),
+                        caption: await BuildCaptionAsync(content, _options.AudioCaptionTemplate, cancellationToken),
+                        parseMode: ParseMode.Html,
                         cancellationToken: cancellationToken);
                 }
                 else
@@ -133,7 +135,7 @@ public sealed class MessageHandler
                         width: content.Width,
                         height: content.Height,
                         duration: DurationParser.ParseSeconds(content.DurationString.Value),
-                        caption: await BuildVideoCaptionAsync(content, cancellationToken),
+                        caption: await BuildCaptionAsync(content, _options.VideoCaptionTemplate, cancellationToken),
                         parseMode: ParseMode.Html,
                         cancellationToken: cancellationToken);
                 }
@@ -228,9 +230,12 @@ public sealed class MessageHandler
         return string.IsNullOrWhiteSpace(template) ? _options.DownloadingTemplate : template;
     }
 
-    private async Task<string> BuildVideoCaptionAsync(Content content, CancellationToken cancellationToken)
+    private async Task<string?> BuildCaptionAsync(Content content, string? template, CancellationToken cancellationToken)
     {
-        var template = string.IsNullOrWhiteSpace(_options.VideoCaptionTemplate) ? "{0}" : _options.VideoCaptionTemplate;
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return null;
+        }
         var title = EscapeHtml(content.Title.Value);
         var channelName = EscapeHtml(content.Channel.Name.Value);
         var channel = string.IsNullOrWhiteSpace(content.Channel.Url)

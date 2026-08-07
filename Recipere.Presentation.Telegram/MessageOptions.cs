@@ -13,6 +13,7 @@ public sealed class MessageOptions
     public string DownloadingVideoTemplate { get; init; } = string.Empty;
     public string VideoTooLongText { get; init; } = string.Empty;
     public string VideoCaptionTemplate { get; init; } = string.Empty;
+    public string AudioCaptionTemplate { get; init; } = string.Empty;
     public string ExpiredRequestText { get; init; } = string.Empty;
 
     public ErrorCause[] ErrorCauses { get; init; } = [];
