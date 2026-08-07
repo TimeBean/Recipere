@@ -48,7 +48,8 @@ is the duration.
 | `DownloadingAudioTemplate` | string? | "Downloading audio…" message; falls back to `DownloadingTemplate`. |
 | `DownloadingVideoTemplate` | string? | "Downloading video…" message; falls back to `DownloadingTemplate`. |
 | `VideoTooLongText`      | string?  | Shown on the selection card when no video quality fits the size limit. |
-| `VideoCaptionTemplate`  | string?  | Caption attached to the sent video; `{0}` is the title, `{1}` is the channel name linked to its page, `{2}` is the bot's @username link (all optional, missing values render as empty). Defaults to just the title if empty. |
+| `VideoCaptionTemplate`  | string?  | Caption attached to the sent video; `{0}` is the title, `{1}` is the channel name linked to its page, `{2}` is the bot's @username link (all optional, missing values render as empty). No caption is sent when empty. |
+| `AudioCaptionTemplate`  | string?  | Caption attached to the sent audio; same placeholders as `VideoCaptionTemplate`. No caption is sent when empty. |
 | `ExpiredRequestText`    | string?  | Reply when the user taps an expired format button.            |
 | `ErrorCauses`           | array    | Ordered list of error-to-reply mappings (see below).           |
 
