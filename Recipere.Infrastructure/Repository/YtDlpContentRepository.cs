@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Recipere.Core.Model;
@@ -9,11 +7,7 @@ namespace Recipere.Infrastructure.Repository;
 
 public sealed class YtDlpContentRepository : IContentRepository
 {
-    private const string YtDlp = "yt-dlp";
     private const long MaxAudioBytes = 45L * 1024 * 1024;
-
-    private const string MetadataPrintTemplate =
-        "%(title)s\\t%(webpage_url)s\\t%(thumbnail)s\\t%(channel)s\\t%(channel_url)s\\t%(duration_string)s";
 
     private static string DefaultStoragePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -23,6 +17,7 @@ public sealed class YtDlpContentRepository : IContentRepository
     private readonly ILogger<YtDlpContentRepository> _logger;
     private readonly YtDlpOptions _options;
     private readonly IVideoStorage _videoStorage;
+    private readonly YtDlpProcessRunner _runner;
     private readonly string _storagePath;
 
     public YtDlpContentRepository(
@@ -33,6 +28,7 @@ public sealed class YtDlpContentRepository : IContentRepository
         _options = options.Value;
         _videoStorage = videoStorage;
         _logger = logger;
+        _runner = new YtDlpProcessRunner(logger);
         _storagePath = string.IsNullOrWhiteSpace(_options.StoragePath)
             ? DefaultStoragePath
             : _options.StoragePath;
@@ -73,7 +69,7 @@ public sealed class YtDlpContentRepository : IContentRepository
 
     public async Task<bool> ExistAsync(string url, CancellationToken cancellationToken = default)
     {
-        var result = await RunYtDlpAsync($"--skip-download --print title \"{url}\"", cancellationToken);
+        var result = await _runner.RunAsync($"--skip-download --print title \"{url}\"", cancellationToken);
         return result.ExitCode == 0;
     }
 
@@ -82,32 +78,13 @@ public sealed class YtDlpContentRepository : IContentRepository
 
     public async Task<Content> GetMetadataAsync(string url, CancellationToken cancellationToken = default)
     {
-        var result = await RunYtDlpAsync(
-            $"{GetCookieArg()} --skip-download --print \"{MetadataPrintTemplate}\" \"{url}\"",
+        var result = await _runner.RunAsync(
+            $"{GetCookieArg()} --skip-download --print \"{YtDlpMetadataMapper.MetadataPrintTemplate}\" \"{url}\"",
             cancellationToken);
 
         if (result.ExitCode != 0) throw new YtDlpException($"yt-dlp metadata fetch failed.{DescribeError(result)}");
 
-        var parts = result.Output.Split("\\t");
-        if (parts.Length != 6)
-        {
-            throw new InvalidOperationException($"Unexpected yt-dlp output format. Got {parts.Length} parts.");
-        }
-
-        return new Content
-        {
-            Url = parts[1],
-            Path = "",
-            Title = new Text(parts[0]),
-            WebpageUrl = parts[1],
-            ThumbnailUrl = parts[2],
-            Channel = new Channel
-            {
-                Name = new Text(parts[3]),
-                Url = parts[4]
-            },
-            DurationString = new Text(parts[5])
-        };
+        return YtDlpMetadataMapper.Map(result.Output);
     }
 
     private async Task<string> DownloadAsync(string url, string filePath, int audioQuality,
@@ -117,7 +94,7 @@ public sealed class YtDlpContentRepository : IContentRepository
             ? $"-f ba -x --audio-format mp3 --audio-quality {audioQuality}"
             : "-f \"bv*+ba/b\" --merge-output-format mp4";
 
-        var result = await RunYtDlpAsync(
+        var result = await _runner.RunAsync(
             $"{GetCookieArg()} {downloadFormat} --no-progress --verbose " +
             $"-o \"{filePath}.%(ext)s\" --print after_move:filepath \"{url}\"",
             cancellationToken);
@@ -133,49 +110,6 @@ public sealed class YtDlpContentRepository : IContentRepository
         if (!File.Exists(actualPath)) throw new YtDlpException($"Download completed but file not found: {actualPath}");
 
         return actualPath;
-    }
-
-    private async Task<YtDlpResult> RunYtDlpAsync(string arguments, CancellationToken cancellationToken)
-    {
-        var outputBuilder = new StringBuilder();
-        var errorBuilder = new StringBuilder();
-
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = YtDlp,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        process.OutputDataReceived += (_, args) =>
-        {
-            if (string.IsNullOrEmpty(args.Data)) return;
-            outputBuilder.AppendLine(args.Data);
-            _logger.LogDebug("[yt-dlp out] {Line}", args.Data);
-        };
-
-        process.ErrorDataReceived += (_, args) =>
-        {
-            if (string.IsNullOrEmpty(args.Data)) return;
-            errorBuilder.AppendLine(args.Data);
-            _logger.LogTrace("[yt-dlp err] {Line}", args.Data);
-        };
-
-        if (!process.Start()) throw new YtDlpException("Failed to start yt-dlp process.");
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        await process.WaitForExitAsync(cancellationToken);
-
-        return new YtDlpResult(
-            process.ExitCode,
-            outputBuilder.ToString().Trim(),
-            errorBuilder.ToString().Trim());
     }
 
     private string GetUniqueTempPath() =>
@@ -236,6 +170,4 @@ public sealed class YtDlpContentRepository : IContentRepository
 
         return total;
     }
-
-    private sealed record YtDlpResult(int ExitCode, string Output, string Error);
 }
